@@ -1,0 +1,36 @@
+hash: 7e24d71f3b8141eff9ea8f1399e7f28cfa4296d25a8d8f6b66edef4796e69cce
+updated: 2018-08-24T11:19:26.494067+09:00
+imports:
+- name: github.com/aergoio/aergo-lib
+  version: dad163a46b6aedafb6ca5a00620168e27235022a
+  subpackages:
+  - db
+- name: github.com/AndreasBriese/bbloom
+  version: 28f7e881ca57bc00e028f9ede9f0d9104cfeef5e
+- name: github.com/dgraph-io/badger
+  version: 391b6d3b93e6014fe8c2971fcc0c1266e47dbbd9
+  subpackages:
+  - options
+  - protos
+  - skl
+  - table
+  - "y"
+- name: github.com/dgryski/go-farm
+  version: 2de33835d10275975374b37b2dcfd22c9020a1f5
+- name: github.com/golang/protobuf
+  version: b4deda0973fb4c70b50d226b1af49f3da59f5265
+  subpackages:
+  - proto
+- name: github.com/pkg/errors
+  version: 816c9085562cd7ee03e7f8188a1cfd942858cded
+- name: golang.org/x/net
+  version: 922f4815f713f213882e8ef45e0d315b164d705c
+  subpackages:
+  - context
+  - internal/timeseries
+  - trace
+- name: golang.org/x/sys
+  version: 1a700e749ce29638d0bbcb531cce1094ea096bd3
+  subpackages:
+  - unix
+testImports: []

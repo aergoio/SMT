@@ -1,0 +1,5 @@
+package: github.com/aergoio/aergo
+homepage: https://github.com/aergoio/aergo
+license: MIT
+import:
+- package: github.com/aergoio/aergo-lib
