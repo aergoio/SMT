@@ -12,7 +12,7 @@ import (
 
 var (
 	// Trie default value : hash of 0x0
-	DefaultLeaf = hash([]byte{0x0})
+	DefaultLeaf = Hasher([]byte{0x0})
 )
 
 const (
@@ -28,6 +28,9 @@ func bitIsSet(bits []byte, i uint64) bool {
 func bitSet(bits []byte, i uint64) {
 	bits[i/8] |= 1 << uint(7-i%8)
 }
+func bitUnSet(bits []byte, i uint64) {
+	bits[i/8] = bits[i/8] &^ (1 << uint(7-i%8))
+}
 func bitSplit(bits []byte, i uint64) (split []byte) {
 	split = make([]byte, len(bits))
 	copy(split, bits)
@@ -35,7 +38,7 @@ func bitSplit(bits []byte, i uint64) (split []byte) {
 	return
 }
 
-func hash(data ...[]byte) []byte {
+func Hasher(data ...[]byte) []byte {
 	hasher := sha512.New512_256()
 	for i := 0; i < len(data); i++ {
 		hasher.Write(data[i])
