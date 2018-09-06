@@ -417,6 +417,31 @@ func (s *SMT) interiorHash(left, right []byte, height uint64, oldRoot []byte, sh
 	batch[2*iBatch+2] = right
 	batch[2*iBatch+1] = left
 
+	/*
+		if len(batch[2*iBatch+2]) == 0 {
+			if len(right) != 0 {
+				batch[2*iBatch+2] = append(batch[2*iBatch+2], right...)
+			}
+		} else {
+			if len(right) == 0 {
+				batch[2*iBatch+2] = nil
+			} else {
+				copy(batch[2*iBatch+2], right)
+			}
+		}
+		if len(batch[2*iBatch+1]) == 0 {
+			if len(left) != 0 {
+				batch[2*iBatch+1] = append(batch[2*iBatch+1], left...)
+			}
+		} else {
+			if len(left) == 0 {
+				batch[2*iBatch+1] = nil
+			} else {
+				copy(batch[2*iBatch+1], left)
+			}
+		}
+	*/
+
 	// maybe store batch node
 	if (height+1)%4 == 0 {
 		var node Hash
