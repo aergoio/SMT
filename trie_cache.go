@@ -34,9 +34,10 @@ func (db *CacheDB) commit() {
 	txn := db.store.NewTx(true)
 	// NOTE The tx interface doesnt handle ErrTxnTooBig
 	for key, batch := range db.updatedNodes {
+		//node := key
 		var node []byte
 		txn.Set(append(node, key[:]...), db.serializeBatch(batch))
-		//txn.Set(key[:], db.serializeBatch(batch))
+		//txn.Set(node[:], db.serializeBatch(batch))
 	}
 	txn.Commit()
 }

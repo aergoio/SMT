@@ -289,10 +289,8 @@ func (s *SMT) loadBatch(root []byte) ([][]byte, error) {
 			s.LoadCacheCounter++
 			s.liveCountMux.Unlock()
 		}
-		// TODO if all values are diffent (ie the RLP contains the key)
-		// then this copy operation is unnecessary.
-		// but if 2 subtrees are the same, modifying one, will unwillingly
-		// modify the other.
+		// Return a copy otherwith consecutive updated nodes will not be
+		// reflected in commit
 		//return val, nil
 		newVal := make([][]byte, 31, 31)
 		copy(newVal, val)
@@ -303,8 +301,9 @@ func (s *SMT) loadBatch(root []byte) ([][]byte, error) {
 	val, exists = s.db.updatedNodes[node]
 	s.db.updatedMux.RUnlock()
 	if exists {
-		// TODO same as above
 		// return val, nil
+		// Return a copy otherwith consecutive updated nodes will not be
+		// reflected in commit
 		newVal := make([][]byte, 31, 31)
 		copy(newVal, val)
 		return newVal, nil
@@ -352,7 +351,7 @@ func (s *SMT) parseBatch(val []byte) [][]byte {
 
 // Get fetches the value of a key by going down the current trie root.
 func (s *SMT) Get(key []byte) ([]byte, error) {
-	return s.get(append(s.Root, byte(0)), key, nil, 0, s.TrieHeight)
+	return s.get(s.Root, key, nil, 0, s.TrieHeight)
 }
 
 // get fetches the value of a key given a trie root
@@ -461,10 +460,9 @@ func (s *SMT) interiorHash(left, right []byte, height uint64, oldRoot []byte, sh
 			if (len(oldRoot) != 0) && !bytes.Equal(h, oldRoot) {
 				// Delete old liveCache node if it has been updated and is not default
 				var node Hash
-				copy(node[:], oldRoot[:HashLength])
+				copy(node[:], oldRoot)
 				delete(s.db.liveCache, node)
 				//NOTE this could delete a node used by another part of the tree if some values are equal.
-				// not the case if the key is hashed with the value
 			}
 			s.db.liveMux.Unlock()
 		}
