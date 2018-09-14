@@ -18,7 +18,7 @@ func (s *SMT) MerkleProof(key []byte) ([][]byte, error) {
 // MerkleProofCompressed returns a compressed merkle proof.
 // The proof contains a bitmap of non default hashes and the non default hashes.
 func (s *SMT) MerkleProofCompressed(key []byte) ([]byte, [][]byte, error) {
-	bitmap := make([]byte, s.KeySize)
+	bitmap := make([]byte, s.TrieHeight/8)
 	mp, err := s.merkleProofCompressed(s.Root, s.TrieHeight, key, bitmap, nil, 0)
 	return bitmap, mp, err
 }
@@ -32,7 +32,7 @@ func (s *SMT) MerkleProofCompressed2(key []byte) ([]byte, [][]byte, error) {
 		return nil, nil, err
 	}
 	var mp [][]byte
-	bitmap := make([]byte, s.KeySize)
+	bitmap := make([]byte, s.TrieHeight/8)
 	for i, node := range mpFull {
 		if !bytes.Equal(node, s.defaultHashes[i]) {
 			bitSet(bitmap, uint64(i))

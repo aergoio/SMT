@@ -15,7 +15,7 @@ import (
 	"github.com/aergoio/aergo-lib/db"
 )
 
-// TODO make a secure trie that hashes keys with a random seed to be sure the trie is sparse.
+// TODO when using the SMT, make sure keys and values are same length as Hash
 
 // SMT is a sparse Merkle tree.
 type SMT struct {
@@ -24,10 +24,11 @@ type SMT struct {
 	Root []byte
 	// lock is for the whole struct
 	lock sync.RWMutex
+	// hash is the hash function used in the trie
 	hash func(data ...[]byte) []byte
-	// KeySize is the size in bytes corresponding to TrieHeight, is size of an address.
-	KeySize       uint64
-	TrieHeight    uint64
+	// TrieHeight is the number if bits in a key
+	TrieHeight uint64
+	// defaultHashes are the default values of empty trees
 	defaultHashes [][]byte
 	// LoadDbCounter counts the nb of db reads in on update
 	LoadDbCounter uint64
@@ -46,20 +47,19 @@ type SMT struct {
 }
 
 // NewSMT creates a new SMT given a keySize and a hash function.
-func NewSMT(keySize uint64, hash func(data ...[]byte) []byte, store db.DB) *SMT {
+func NewSMT(root []byte, hash func(data ...[]byte) []byte, store db.DB) *SMT {
 	s := &SMT{
 		hash:             hash,
-		TrieHeight:       keySize * 8,
-		CacheHeightLimit: 232,     //246, //234, // based on the number of nodes we can keep in memory.
-		KeySize:          keySize, // same length as hash output
+		TrieHeight:       uint64(len(hash([]byte("height"))) * 8), // hash any string to get output length
+		CacheHeightLimit: 232,                                     //246, //234, // based on the number of nodes we can keep in memory.
 		counterOn:        false,
 	}
 	s.db = &CacheDB{
-		liveCache:    make(map[Hash][][]byte, 5e6),
-		updatedNodes: make(map[Hash][][]byte, 5e3),
+		liveCache:    make(map[Hash][][]byte),
+		updatedNodes: make(map[Hash][][]byte),
 		store:        store,
 	}
-	s.Root = nil
+	s.Root = root
 	s.loadDefaultHashes()
 	return s
 }

@@ -24,14 +24,14 @@ import (
 )
 
 func TestSmtEmptyTrie(t *testing.T) {
-	smt := NewSMT(32, Hasher, nil)
+	smt := NewSMT(nil, Hasher, nil)
 	if !bytes.Equal([]byte{}, smt.Root) {
 		t.Fatal("empty trie root hash not correct")
 	}
 }
 
 func TestSmtUpdateAndGet(t *testing.T) {
-	smt := NewSMT(32, Hasher, nil)
+	smt := NewSMT(nil, Hasher, nil)
 
 	// Add data to empty trie
 	keys := getFreshData(10, 32)
@@ -75,7 +75,7 @@ func TestSmtUpdateAndGet(t *testing.T) {
 }
 
 func TestSmtPublicUpdateAndGet(t *testing.T) {
-	smt := NewSMT(32, Hasher, nil)
+	smt := NewSMT(nil, Hasher, nil)
 	// Add data to empty trie
 	keys := getFreshData(5, 32)
 	values := getFreshData(5, 32)
@@ -156,7 +156,7 @@ func TestSmtDifferentKeySize(t *testing.T) {
 */
 
 func TestSmtDelete(t *testing.T) {
-	smt := NewSMT(32, Hasher, nil)
+	smt := NewSMT(nil, Hasher, nil)
 	// Add data to empty trie
 	keys := getFreshData(10, 32)
 	values := getFreshData(10, 32)
@@ -180,7 +180,7 @@ func TestSmtDelete(t *testing.T) {
 		t.Fatal("Failed to delete from trie")
 	}
 	// Remove deleted key from keys and check root with a clean trie.
-	smt2 := NewSMT(32, Hasher, nil)
+	smt2 := NewSMT(nil, Hasher, nil)
 	ch = make(chan result, 1)
 	smt2.update(smt2.Root, keys[1:], values[1:], nil, 0, smt.TrieHeight, false, true, ch)
 	res = <-ch
@@ -204,7 +204,7 @@ func TestSmtDelete(t *testing.T) {
 }
 
 func TestSmtMerkleProof(t *testing.T) {
-	smt := NewSMT(32, Hasher, nil)
+	smt := NewSMT(nil, Hasher, nil)
 	// Add data to empty trie
 	keys := getFreshData(10, 32)
 	values := getFreshData(10, 32)
@@ -224,7 +224,7 @@ func TestSmtMerkleProof(t *testing.T) {
 }
 
 func TestSmtMerkleProofCompressed(t *testing.T) {
-	smt := NewSMT(32, Hasher, nil)
+	smt := NewSMT(nil, Hasher, nil)
 	// Add data to empty trie
 	keys := getFreshData(10, 32)
 	values := getFreshData(10, 32)
@@ -256,7 +256,7 @@ func TestSmtMerkleProofCompressed(t *testing.T) {
 }
 
 func TestSmtMerkleProofCompressed2(t *testing.T) {
-	smt := NewSMT(32, Hasher, nil)
+	smt := NewSMT(nil, Hasher, nil)
 	// Add data to empty trie
 	keys := getFreshData(10, 32)
 	values := getFreshData(10, 32)
@@ -277,9 +277,9 @@ func TestSmtCommit(t *testing.T) {
 	}
 	st := db.NewDB(db.BadgerImpl, dbPath)
 
-	smt := NewSMT(32, Hasher, st)
-	keys := getFreshData(20, 32)
-	values := getFreshData(20, 32)
+	smt := NewSMT(nil, Hasher, st)
+	keys := getFreshData(32, 32)
+	values := getFreshData(32, 32)
 	smt.Update(keys, values)
 	smt.Commit()
 	// liveCache is deleted so the key is fetched in badger db
@@ -292,7 +292,7 @@ func TestSmtCommit(t *testing.T) {
 	}
 
 	// test loading a shortcut batch
-	smt = NewSMT(32, Hasher, st)
+	smt = NewSMT(nil, Hasher, st)
 	keys = getFreshData(1, 32)
 	values = getFreshData(1, 32)
 	smt.Update(keys, values)
@@ -314,7 +314,7 @@ func TestSmtRevert(t *testing.T) {
 	}
 	st := db.NewDB(db.BadgerImpl, dbPath)
 
-	smt := NewSMT(32, Hasher, st)
+	smt := NewSMT(nil, Hasher, st)
 	smt.Commit()
 	// Add data to empty trie
 	keys := getFreshData(10, 32)
@@ -322,12 +322,14 @@ func TestSmtRevert(t *testing.T) {
 	root, _ := smt.Update(keys, values)
 	smt.Commit()
 
-	newValues := getFreshData(1000, 32)
+	newValues := getFreshData(10, 32)
 	smt.Update(keys, newValues)
+	updatedNodes1 := smt.db.updatedNodes
 	smt.Commit()
 	newKeys := getFreshData(10, 32)
 	newValues = getFreshData(10, 32)
 	newRoot, _ := smt.Update(newKeys, newValues)
+	updatedNodes2 := smt.db.updatedNodes
 	smt.Commit()
 
 	smt.Revert(root)
@@ -357,6 +359,17 @@ func TestSmtRevert(t *testing.T) {
 			t.Fatal("revert failed, values not updated")
 		}
 	}
+	// Check all reverted nodes have been deleted
+	for node, _ := range updatedNodes2 {
+		if len(smt.db.store.Get(node[:])) != 0 {
+			t.Fatal("nodes not deleted from database", node)
+		}
+	}
+	for node, _ := range updatedNodes1 {
+		if len(smt.db.store.Get(node[:])) != 0 {
+			t.Fatal("nodes not deleted from database", node)
+		}
+	}
 	st.Close()
 	os.RemoveAll(".aergo")
 }
@@ -368,10 +381,10 @@ func TestSmtRaisesError(t *testing.T) {
 	}
 	st := db.NewDB(db.BadgerImpl, dbPath)
 
-	smt := NewSMT(20, Hasher, st)
+	smt := NewSMT(nil, Hasher, st)
 	// Add data to empty trie
-	keys := getFreshData(10, 20)
-	values := getFreshData(10, 20)
+	keys := getFreshData(10, 32)
+	values := getFreshData(10, 32)
 	smt.Update(keys, values)
 	smt.db.liveCache = make(map[Hash][][]byte)
 	smt.db.updatedNodes = make(map[Hash][][]byte)
@@ -395,7 +408,7 @@ func TestSmtRaisesError(t *testing.T) {
 	st.Close()
 	os.RemoveAll(".aergo")
 
-	smt = NewSMT(20, Hasher, nil)
+	smt = NewSMT(nil, Hasher, nil)
 	err = smt.Commit()
 	if err == nil {
 		t.Fatal("Error not created if database not connected")
@@ -427,10 +440,10 @@ func benchmark10MAccounts10Ktps(smt *SMT, b *testing.B) {
 	fmt.Println("\nLoading b.N x 1000 accounts")
 	for i := 0; i < b.N; i++ {
 		newkeys := getFreshData(1000, 32)
-		start := time.Now()
 		smt.Update(newkeys, newvalues)
-		end := time.Now()
+		start := time.Now()
 		smt.Commit()
+		end := time.Now()
 		elapsed := end.Sub(start)
 		var m runtime.MemStats
 		runtime.ReadMemStats(&m)
@@ -448,8 +461,8 @@ func BenchmarkCacheHeightLimit233(b *testing.B) {
 		_ = os.MkdirAll(dbPath, 0711)
 	}
 	st := db.NewDB(db.BadgerImpl, dbPath)
-	smt := NewSMT(32, Hasher, st)
-	smt.CacheHeightLimit = 233
+	smt := NewSMT(nil, Hasher, st)
+	smt.CacheHeightLimit = 0
 	benchmark10MAccounts10Ktps(smt, b)
 	st.Close()
 	os.RemoveAll(".aergo")
@@ -460,7 +473,7 @@ func BenchmarkCacheHeightLimit238(b *testing.B) {
 		_ = os.MkdirAll(dbPath, 0711)
 	}
 	st := db.NewDB(db.BadgerImpl, dbPath)
-	smt := NewSMT(32, Hasher, st)
+	smt := NewSMT(nil, Hasher, st)
 	smt.CacheHeightLimit = 238
 	benchmark10MAccounts10Ktps(smt, b)
 	st.Close()
@@ -472,7 +485,7 @@ func BenchmarkCacheHeightLimit245(b *testing.B) {
 		_ = os.MkdirAll(dbPath, 0711)
 	}
 	st := db.NewDB(db.BadgerImpl, dbPath)
-	smt := NewSMT(32, Hasher, st)
+	smt := NewSMT(nil, Hasher, st)
 	smt.CacheHeightLimit = 245
 	benchmark10MAccounts10Ktps(smt, b)
 	st.Close()
