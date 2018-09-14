@@ -48,7 +48,7 @@ func (s *SMT) merkleProof(root []byte, height uint64, key []byte, batch [][]byte
 		return nil, nil
 	}
 	// Fetch the children of the node
-	batch, iBatch, lnode, rnode, isShortcut, err := s.loadChildren(root, height, batch, iBatch)
+	batch, iBatch, lnode, rnode, isShortcut, err := s.loadChildren(root, height, batch, iBatch, false)
 	if err != nil {
 		return nil, err
 	}
@@ -93,7 +93,7 @@ func (s *SMT) merkleProofCompressed(root []byte, height uint64, key []byte, bitm
 		return nil, nil
 	}
 	// Fetch the children of the node
-	batch, iBatch, lnode, rnode, isShortcut, err := s.loadChildren(root, height, batch, iBatch)
+	batch, iBatch, lnode, rnode, isShortcut, err := s.loadChildren(root, height, batch, iBatch, false)
 	if err != nil {
 		return nil, err
 	}

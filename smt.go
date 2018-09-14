@@ -109,7 +109,7 @@ func (s *SMT) update(root []byte, keys, values, batch [][]byte, iBatch uint8, he
 		}
 		return
 	}
-	batch, iBatch, lnode, rnode, isShortcut, err := s.loadChildren(root, height, batch, iBatch)
+	batch, iBatch, lnode, rnode, isShortcut, err := s.loadChildren(root, height, batch, iBatch, true)
 	if err != nil {
 		ch <- result{nil, err}
 		return
@@ -250,7 +250,7 @@ func (s *SMT) maybeAddShortcutToKV(keys, values [][]byte, shortcutKey, shortcutV
 
 // loadChildren looks for the children of a node.
 // if the node is not stored in cache, it will be loaded from db.
-func (s *SMT) loadChildren(root []byte, height uint64, batch [][]byte, iBatch uint8) ([][]byte, uint8, []byte, []byte, bool, error) {
+func (s *SMT) loadChildren(root []byte, height uint64, batch [][]byte, iBatch uint8, updateSafe bool) ([][]byte, uint8, []byte, []byte, bool, error) {
 	isShortcut := false
 	if height%4 == 0 {
 		if len(root) == 0 {
@@ -259,7 +259,7 @@ func (s *SMT) loadChildren(root []byte, height uint64, batch [][]byte, iBatch ui
 			batch[0] = []byte{0}
 		} else {
 			var err error
-			batch, err = s.loadBatch(root[:HashLength])
+			batch, err = s.loadBatch(root[:HashLength], updateSafe)
 			if err != nil {
 				return nil, 0, nil, nil, false, err
 			}
@@ -277,7 +277,7 @@ func (s *SMT) loadChildren(root []byte, height uint64, batch [][]byte, iBatch ui
 }
 
 // loadBatch fetches a batch of nodes in cache or db
-func (s *SMT) loadBatch(root []byte) ([][]byte, error) {
+func (s *SMT) loadBatch(root []byte, updateSafe bool) ([][]byte, error) {
 	var node Hash
 	copy(node[:], root)
 	s.db.liveMux.RLock()
@@ -289,24 +289,28 @@ func (s *SMT) loadBatch(root []byte) ([][]byte, error) {
 			s.LoadCacheCounter++
 			s.liveCountMux.Unlock()
 		}
-		// Return a copy otherwith consecutive updated nodes will not be
-		// reflected in commit
-		//return val, nil
-		newVal := make([][]byte, 31, 31)
-		copy(newVal, val)
-		return newVal, nil
+		if updateSafe {
+			// Return a copy so that Commit() doesnt have to be called at
+			// each block and still commit every state transition.
+			newVal := make([][]byte, 31, 31)
+			copy(newVal, val)
+			return newVal, nil
+		}
+		return val, nil
 	}
 	// checking updated nodes is useful if get() or update() is called twice in a row without db commit
 	s.db.updatedMux.RLock()
 	val, exists = s.db.updatedNodes[node]
 	s.db.updatedMux.RUnlock()
 	if exists {
-		// return val, nil
-		// Return a copy otherwith consecutive updated nodes will not be
-		// reflected in commit
-		newVal := make([][]byte, 31, 31)
-		copy(newVal, val)
-		return newVal, nil
+		if updateSafe {
+			// Return a copy so that Commit() doesnt have to be called at
+			// each block and still commit every state transition.
+			newVal := make([][]byte, 31, 31)
+			copy(newVal, val)
+			return newVal, nil
+		}
+		return val, nil
 	}
 	//Fetch node in disk database
 	if s.db.store == nil {
@@ -363,7 +367,7 @@ func (s *SMT) get(root []byte, key []byte, batch [][]byte, iBatch uint8, height 
 		return root[:HashLength], nil
 	}
 	// Fetch the children of the node
-	batch, iBatch, lnode, rnode, isShortcut, err := s.loadChildren(root, height, batch, iBatch)
+	batch, iBatch, lnode, rnode, isShortcut, err := s.loadChildren(root, height, batch, iBatch, false)
 	if err != nil {
 		return nil, err
 	}

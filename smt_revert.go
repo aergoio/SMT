@@ -68,12 +68,12 @@ func (s *SMT) maybeDeleteSubTree(original []byte, maybeDelete []byte, height uin
 
 	// if this point os reached, then the root of the batch is same
 	// so the batch is also same.
-	batch, iBatch, lnode, rnode, isShortcut, lerr := s.loadChildren(original, height, batch, iBatch)
+	batch, iBatch, lnode, rnode, isShortcut, lerr := s.loadChildren(original, height, batch, iBatch, false)
 	if lerr != nil {
 		ch <- lerr
 		return
 	}
-	batch2, _, lnode2, rnode2, isShortcut2, rerr := s.loadChildren(maybeDelete, height, batch2, iBatch)
+	batch2, _, lnode2, rnode2, isShortcut2, rerr := s.loadChildren(maybeDelete, height, batch2, iBatch, false)
 	if rerr != nil {
 		ch <- rerr
 		return
@@ -129,7 +129,7 @@ func (s *SMT) deleteSubTree(root []byte, height uint64, batch [][]byte, iBatch u
 		ch <- nil
 		return
 	}
-	batch, iBatch, lnode, rnode, isShortcut, err := s.loadChildren(root, height, batch, iBatch)
+	batch, iBatch, lnode, rnode, isShortcut, err := s.loadChildren(root, height, batch, iBatch, false)
 	if err != nil {
 		ch <- err
 		return

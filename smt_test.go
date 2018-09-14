@@ -414,7 +414,7 @@ func TestSmtRaisesError(t *testing.T) {
 		t.Fatal("Error not created if database not connected")
 	}
 	smt.db.liveCache = make(map[Hash][][]byte)
-	_, _, _, _, _, err = smt.loadChildren(make([]byte, 32, 32), 0, nil, 0)
+	_, _, _, _, _, err = smt.loadChildren(make([]byte, 32, 32), 0, nil, 0, false)
 	if err == nil {
 		t.Fatal("Error not created if database not connected")
 	}
