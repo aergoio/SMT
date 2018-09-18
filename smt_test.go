@@ -420,6 +420,34 @@ func TestSmtRaisesError(t *testing.T) {
 	}
 }
 
+func TestStash(t *testing.T) {
+	dbPath := path.Join(".aergo", "db")
+	if _, err := os.Stat(dbPath); os.IsNotExist(err) {
+		_ = os.MkdirAll(dbPath, 0711)
+	}
+	st := db.NewDB(db.BadgerImpl, dbPath)
+	smt := NewSMT(nil, Hasher, st)
+	// Add data to empty trie
+	keys := getFreshData(20, 32)
+	values := getFreshData(20, 32)
+	root, _ := smt.Update(keys, values)
+	smt.Commit()
+	values = getFreshData(20, 32)
+	smt.Update(keys, values)
+	smt.Stash()
+	if !bytes.Equal(smt.Root, root) {
+		t.Fatal("Trie not rolled back")
+	}
+	if len(smt.db.updatedNodes) != 0 {
+		t.Fatal("Trie not rolled back")
+	}
+	if len(smt.db.liveCache) != 0 {
+		t.Fatal("Trie not rolled back")
+	}
+	st.Close()
+	os.RemoveAll(".aergo")
+}
+
 func getFreshData(size, length int) [][]byte {
 	var data [][]byte
 	for i := 0; i < size; i++ {
@@ -440,14 +468,16 @@ func benchmark10MAccounts10Ktps(smt *SMT, b *testing.B) {
 	fmt.Println("\nLoading b.N x 1000 accounts")
 	for i := 0; i < b.N; i++ {
 		newkeys := getFreshData(1000, 32)
-		smt.Update(newkeys, newvalues)
 		start := time.Now()
-		smt.Commit()
+		smt.Update(newkeys, newvalues)
 		end := time.Now()
+		smt.Commit()
+		end2 := time.Now()
 		elapsed := end.Sub(start)
+		elapsed2 := end2.Sub(end)
 		var m runtime.MemStats
 		runtime.ReadMemStats(&m)
-		fmt.Println(i, " : elapsed : ", elapsed,
+		fmt.Println(i, " : update time : ", elapsed, "commit time : ", elapsed2,
 			"\ndb read : ", smt.LoadDbCounter, "    cache read : ", smt.LoadCacheCounter,
 			"\ncache size : ", len(smt.db.liveCache),
 			"\nRAM : ", m.Sys/1024/1024, " MiB")

@@ -22,6 +22,8 @@ type SMT struct {
 	db *CacheDB
 	// Root is the current root of the smt.
 	Root []byte
+	// prevRoot is the root before the last update
+	prevRoot []byte
 	// lock is for the whole struct
 	lock sync.RWMutex
 	// hash is the hash function used in the trie
@@ -79,6 +81,7 @@ func (s *SMT) loadDefaultHashes() {
 func (s *SMT) Update(keys, values [][]byte) ([]byte, error) {
 	s.lock.Lock()
 	defer s.lock.Unlock()
+	s.prevRoot = s.Root
 	s.LoadDbCounter = 0
 	s.LoadCacheCounter = 0
 
@@ -109,7 +112,9 @@ func (s *SMT) update(root []byte, keys, values, batch [][]byte, iBatch uint8, he
 		}
 		return
 	}
-	batch, iBatch, lnode, rnode, isShortcut, err := s.loadChildren(root, height, batch, iBatch, true)
+	// updateSafe in loadChildren is set to false so intermediate node modifications by multiple update calls
+	// will not be commited. Setting true will record intermediate modifications by every update. Can be useful if several blocks commited at same time.
+	batch, iBatch, lnode, rnode, isShortcut, err := s.loadChildren(root, height, batch, iBatch, false)
 	if err != nil {
 		ch <- result{nil, err}
 		return
@@ -388,6 +393,17 @@ func (s *SMT) DefaultHash(height uint64) []byte {
 	return s.defaultHashes[height]
 }
 
+// CheckRoot returns true if the root exists in Database.
+func (s *SMT) CheckRoot(root []byte) bool {
+	s.db.lock.RLock()
+	dbval := s.db.store.Get(root)
+	s.db.lock.RUnlock()
+	if len(dbval) != 0 {
+		return true
+	}
+	return false
+}
+
 // interiorHash hashes 2 children to get the parent hash and stores it in the updatedNodes and maybe in liveCache.
 // the key is the hash and the value is the appended child nodes or the appended key/value in case of a shortcut.
 // keys of go mappings cannot be byte slices so the hash is copied to a byte array
@@ -475,6 +491,7 @@ func (s *SMT) interiorHash(left, right []byte, height uint64, oldRoot []byte, sh
 }
 
 // Commit stores the updated nodes to disk
+// Commit should be called for every block otherwise past tries are not recorded and it is not possible to revert to them
 func (s *SMT) Commit() error {
 	if s.db.store == nil {
 		return fmt.Errorf("DB not connected to trie")
@@ -489,4 +506,14 @@ func (s *SMT) Commit() error {
 	s.db.commit()
 	s.db.updatedNodes = make(map[Hash][][]byte, len(s.db.updatedNodes)*2)
 	return nil
+}
+
+// RollbackTo rolls back the changes made by previous updates
+// and loads the cache from before the rollback.
+func (s *SMT) Stash() {
+	// Making a temporary liveCache requires it to be copied, so it's quicker
+	// to just load the cache if a block state root was incorrect.
+	s.Root = s.prevRoot
+	s.db.liveCache = make(map[Hash][][]byte)
+	s.db.updatedNodes = make(map[Hash][][]byte)
 }
