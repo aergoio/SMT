@@ -13,8 +13,10 @@ import (
 // Revert rewinds the state tree to a previous version
 // All the nodes (subtree roots and values) reverted are deleted from the database.
 func (s *SMT) Revert(toOldRoot []byte) error {
+	s.lock.Lock()
+	defer s.lock.Unlock()
 	if bytes.Equal(s.Root, toOldRoot) {
-		return fmt.Errorf("Trying to revers to the same root %x", s.Root)
+		return fmt.Errorf("Trying to revert to the same root %x", s.Root)
 	}
 	//check if toOldRoot is in s.pastTries
 	canRevert := false
@@ -68,12 +70,12 @@ func (s *SMT) maybeDeleteSubTree(original []byte, maybeDelete []byte, height uin
 
 	// if this point os reached, then the root of the batch is same
 	// so the batch is also same.
-	batch, iBatch, lnode, rnode, isShortcut, lerr := s.loadChildren(original, height, batch, iBatch, false)
+	batch, iBatch, lnode, rnode, isShortcut, lerr := s.loadChildren(original, height, batch, iBatch)
 	if lerr != nil {
 		ch <- lerr
 		return
 	}
-	batch2, _, lnode2, rnode2, isShortcut2, rerr := s.loadChildren(maybeDelete, height, batch2, iBatch, false)
+	batch2, _, lnode2, rnode2, isShortcut2, rerr := s.loadChildren(maybeDelete, height, batch2, iBatch)
 	if rerr != nil {
 		ch <- rerr
 		return
@@ -88,21 +90,17 @@ func (s *SMT) maybeDeleteSubTree(original []byte, maybeDelete []byte, height uin
 				ch <- err
 				return
 			}
-		} else if iBatch == 0 {
-			s.deleteRevertedNode(maybeDelete)
+		} else {
+			s.maybeDeleteRevertedNode(maybeDelete, iBatch)
 		}
 	} else {
 		if isShortcut {
 			if !bytes.Equal(lnode, lnode2) || !bytes.Equal(rnode, rnode2) {
-				if iBatch == 0 {
-					s.deleteRevertedNode(maybeDelete)
-				}
+				s.maybeDeleteRevertedNode(maybeDelete, iBatch)
 			}
 		} else {
 			// Delete subtree if not equal
-			if iBatch == 0 {
-				s.deleteRevertedNode(maybeDelete)
-			}
+			s.maybeDeleteRevertedNode(maybeDelete, iBatch)
 			ch1 := make(chan error, 1)
 			ch2 := make(chan error, 1)
 			go s.maybeDeleteSubTree(lnode, lnode2, height-1, batch, batch2, 2*iBatch+1, ch1)
@@ -120,7 +118,6 @@ func (s *SMT) maybeDeleteSubTree(original []byte, maybeDelete []byte, height uin
 		}
 	}
 	ch <- nil
-	return
 }
 
 // deleteSubTree deletes all the nodes contained in a tree
@@ -129,7 +126,7 @@ func (s *SMT) deleteSubTree(root []byte, height uint64, batch [][]byte, iBatch u
 		ch <- nil
 		return
 	}
-	batch, iBatch, lnode, rnode, isShortcut, err := s.loadChildren(root, height, batch, iBatch, false)
+	batch, iBatch, lnode, rnode, isShortcut, err := s.loadChildren(root, height, batch, iBatch)
 	if err != nil {
 		ch <- err
 		return
@@ -150,16 +147,15 @@ func (s *SMT) deleteSubTree(root []byte, height uint64, batch [][]byte, iBatch u
 			return
 		}
 	}
-	if iBatch == 0 {
-		s.deleteRevertedNode(root)
-	}
+	s.maybeDeleteRevertedNode(root, iBatch)
 	ch <- nil
-	return
 }
 
-// deleteRevertedNode adds the node to updatedNodes to be reverted
-func (s *SMT) deleteRevertedNode(root []byte) {
-	s.db.revertMux.Lock()
-	s.db.nodesToRevert = append(s.db.nodesToRevert, root)
-	s.db.revertMux.Unlock()
+// maybeDeleteRevertedNode adds the node to updatedNodes to be reverted
+func (s *SMT) maybeDeleteRevertedNode(root []byte, iBatch uint8) {
+	if iBatch == 0 {
+		s.db.revertMux.Lock()
+		s.db.nodesToRevert = append(s.db.nodesToRevert, root)
+		s.db.revertMux.Unlock()
+	}
 }

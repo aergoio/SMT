@@ -12,12 +12,16 @@ import (
 // MerkleProof creates a merkle proof for a key in the latest trie
 // A non inclusion proof is a proof to a default value
 func (s *SMT) MerkleProof(key []byte) ([][]byte, error) {
+	s.lock.RLock()
+	defer s.lock.RUnlock()
 	return s.merkleProof(s.Root, s.TrieHeight, key, nil, 0)
 }
 
 // MerkleProofCompressed returns a compressed merkle proof.
 // The proof contains a bitmap of non default hashes and the non default hashes.
 func (s *SMT) MerkleProofCompressed(key []byte) ([]byte, [][]byte, error) {
+	s.lock.RLock()
+	defer s.lock.RUnlock()
 	bitmap := make([]byte, s.TrieHeight/8)
 	mp, err := s.merkleProofCompressed(s.Root, s.TrieHeight, key, bitmap, nil, 0)
 	return bitmap, mp, err
@@ -26,6 +30,8 @@ func (s *SMT) MerkleProofCompressed(key []byte) ([]byte, [][]byte, error) {
 // MerkleProofCompressed2 returns a compressed merkle proof like MerkleProofCompressed
 // This version 1st calls MerkleProof and then removes the default nodes.
 func (s *SMT) MerkleProofCompressed2(key []byte) ([]byte, [][]byte, error) {
+	s.lock.RLock()
+	defer s.lock.RUnlock()
 	// create a regular merkle proof and then compress it
 	mpFull, err := s.merkleProof(s.Root, s.TrieHeight, key, nil, 0)
 	if err != nil {
@@ -48,7 +54,7 @@ func (s *SMT) merkleProof(root []byte, height uint64, key []byte, batch [][]byte
 		return nil, nil
 	}
 	// Fetch the children of the node
-	batch, iBatch, lnode, rnode, isShortcut, err := s.loadChildren(root, height, batch, iBatch, false)
+	batch, iBatch, lnode, rnode, isShortcut, err := s.loadChildren(root, height, batch, iBatch)
 	if err != nil {
 		return nil, err
 	}
@@ -93,7 +99,7 @@ func (s *SMT) merkleProofCompressed(root []byte, height uint64, key []byte, bitm
 		return nil, nil
 	}
 	// Fetch the children of the node
-	batch, iBatch, lnode, rnode, isShortcut, err := s.loadChildren(root, height, batch, iBatch, false)
+	batch, iBatch, lnode, rnode, isShortcut, err := s.loadChildren(root, height, batch, iBatch)
 	if err != nil {
 		return nil, err
 	}

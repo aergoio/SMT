@@ -46,21 +46,24 @@ type SMT struct {
 	CacheHeightLimit uint64
 	// pastTries stores the past maxPastTries trie roots to revert
 	pastTries [][]byte
+	// atomicUpdate, commit all the changes made by intermediate update calls
+	atomicUpdate bool
 }
 
 // NewSMT creates a new SMT given a keySize and a hash function.
 func NewSMT(root []byte, hash func(data ...[]byte) []byte, store db.DB) *SMT {
 	s := &SMT{
-		hash:             hash,
-		TrieHeight:       uint64(len(hash([]byte("height"))) * 8), // hash any string to get output length
-		CacheHeightLimit: 232,                                     //246, //234, // based on the number of nodes we can keep in memory.
-		counterOn:        false,
+		hash:       hash,
+		TrieHeight: uint64(len(hash([]byte("height"))) * 8), // hash any string to get output length
+		counterOn:  false,
 	}
 	s.db = &CacheDB{
 		liveCache:    make(map[Hash][][]byte),
 		updatedNodes: make(map[Hash][][]byte),
 		store:        store,
 	}
+	// don't store any cache by default (contracts state don't use cache)
+	s.CacheHeightLimit = s.TrieHeight + 1
 	s.Root = root
 	s.loadDefaultHashes()
 	return s
@@ -78,10 +81,16 @@ func (s *SMT) loadDefaultHashes() {
 }
 
 // Update adds a sorted list of keys and their values to the trie
+// If Update is called multiple times, only the state after the last update
+// is commited.
+// When calling Update multiple times without commit, make sure the
+// values of different keys are unique(hash contains the key for example)
+// otherwise some subtree may get overwritten with the wrong hash.
 func (s *SMT) Update(keys, values [][]byte) ([]byte, error) {
 	s.lock.Lock()
 	defer s.lock.Unlock()
 	s.prevRoot = s.Root
+	s.atomicUpdate = false
 	s.LoadDbCounter = 0
 	s.LoadCacheCounter = 0
 
@@ -91,7 +100,41 @@ func (s *SMT) Update(keys, values [][]byte) ([]byte, error) {
 	if result.err != nil {
 		return nil, result.err
 	}
-	s.Root = result.update[:HashLength]
+	if len(result.update) != 0 {
+		s.Root = result.update[:HashLength]
+	} else {
+		s.Root = nil
+	}
+	return s.Root, nil
+}
+
+// AtomicUpdate can be called multiple times and all the updated nodes will be commited
+// and roots will be stored in past tries.
+// Can be used for updating several blocks before committing to DB.
+func (s *SMT) AtomicUpdate(keys, values [][]byte) ([]byte, error) {
+	s.lock.Lock()
+	defer s.lock.Unlock()
+	s.prevRoot = s.Root
+	s.atomicUpdate = true
+	s.LoadDbCounter = 0
+	s.LoadCacheCounter = 0
+	ch := make(chan result, 1)
+	s.update(s.Root, keys, values, nil, 0, s.TrieHeight, false, true, ch)
+	result := <-ch
+	if result.err != nil {
+		return nil, result.err
+	}
+	if len(result.update) != 0 {
+		s.Root = result.update[:HashLength]
+	} else {
+		s.Root = nil
+	}
+	if len(s.pastTries) >= maxPastTries {
+		copy(s.pastTries, s.pastTries[1:])
+		s.pastTries[len(s.pastTries)-1] = s.Root
+	} else {
+		s.pastTries = append(s.pastTries, s.Root)
+	}
 	return s.Root, nil
 }
 
@@ -114,7 +157,7 @@ func (s *SMT) update(root []byte, keys, values, batch [][]byte, iBatch uint8, he
 	}
 	// updateSafe in loadChildren is set to false so intermediate node modifications by multiple update calls
 	// will not be commited. Setting true will record intermediate modifications by every update. Can be useful if several blocks commited at same time.
-	batch, iBatch, lnode, rnode, isShortcut, err := s.loadChildren(root, height, batch, iBatch, false)
+	batch, iBatch, lnode, rnode, isShortcut, err := s.loadChildren(root, height, batch, iBatch)
 	if err != nil {
 		ch <- result{nil, err}
 		return
@@ -124,8 +167,8 @@ func (s *SMT) update(root []byte, keys, values, batch [][]byte, iBatch uint8, he
 		// The shortcut node was added to keys and values so consider this subtree default.
 		lnode, rnode = nil, nil
 		// update in the batch (set key, value to default to the next loadChildren is correct)
-		batch[2*iBatch+1] = lnode
-		batch[2*iBatch+2] = rnode
+		batch[2*iBatch+1] = nil
+		batch[2*iBatch+2] = nil
 	}
 
 	// Split the keys array so each branch can be updated in parallel
@@ -173,7 +216,7 @@ func (s *SMT) updateParallel(lnode, rnode, root []byte, keys, values, batch, lke
 		ch <- result{nil, rresult.err}
 		return
 	}
-	ch <- result{s.interiorHash(lresult.update, rresult.update, height-1, root, shortcut, store, keys, values, batch, iBatch), nil}
+	ch <- result{s.interiorHash(lresult.update, rresult.update, height, root, shortcut, store, keys, values, batch, iBatch), nil}
 
 }
 
@@ -187,7 +230,7 @@ func (s *SMT) updateRight(lnode, rnode, root []byte, keys, values, batch [][]byt
 		ch <- result{nil, res.err}
 		return
 	}
-	ch <- result{s.interiorHash(lnode, res.update, height-1, root, shortcut, store, keys, values, batch, iBatch), nil}
+	ch <- result{s.interiorHash(lnode, res.update, height, root, shortcut, store, keys, values, batch, iBatch), nil}
 }
 
 // updateLeft updates the left side of the tree
@@ -200,7 +243,7 @@ func (s *SMT) updateLeft(lnode, rnode, root []byte, keys, values, batch [][]byte
 		ch <- result{nil, res.err}
 		return
 	}
-	ch <- result{s.interiorHash(res.update, rnode, height-1, root, shortcut, store, keys, values, batch, iBatch), nil}
+	ch <- result{s.interiorHash(res.update, rnode, height, root, shortcut, store, keys, values, batch, iBatch), nil}
 }
 
 // splitKeys devides the array of keys into 2 so they can update left and right branches in parallel
@@ -236,8 +279,9 @@ func (s *SMT) maybeAddShortcutToKV(keys, values [][]byte, shortcutKey, shortcutV
 				// the shortcut keys is being updated
 				return keys, values
 			}
-			if bytes.Compare(shortcutKey, key) > 0 {
+			if !higher && bytes.Compare(shortcutKey, key) > 0 {
 				higher = true
+				continue
 			}
 			if higher && bytes.Compare(shortcutKey, key) < 0 {
 				// insert shortcut in slices
@@ -247,6 +291,7 @@ func (s *SMT) maybeAddShortcutToKV(keys, values [][]byte, shortcutKey, shortcutV
 				newVals = append(newVals, values[:i]...)
 				newVals = append(newVals, shortcutVal)
 				newVals = append(newVals, values[i:]...)
+				break
 			}
 		}
 	}
@@ -255,7 +300,7 @@ func (s *SMT) maybeAddShortcutToKV(keys, values [][]byte, shortcutKey, shortcutV
 
 // loadChildren looks for the children of a node.
 // if the node is not stored in cache, it will be loaded from db.
-func (s *SMT) loadChildren(root []byte, height uint64, batch [][]byte, iBatch uint8, updateSafe bool) ([][]byte, uint8, []byte, []byte, bool, error) {
+func (s *SMT) loadChildren(root []byte, height uint64, batch [][]byte, iBatch uint8) ([][]byte, uint8, []byte, []byte, bool, error) {
 	isShortcut := false
 	if height%4 == 0 {
 		if len(root) == 0 {
@@ -264,7 +309,7 @@ func (s *SMT) loadChildren(root []byte, height uint64, batch [][]byte, iBatch ui
 			batch[0] = []byte{0}
 		} else {
 			var err error
-			batch, err = s.loadBatch(root[:HashLength], updateSafe)
+			batch, err = s.loadBatch(root[:HashLength])
 			if err != nil {
 				return nil, 0, nil, nil, false, err
 			}
@@ -282,7 +327,7 @@ func (s *SMT) loadChildren(root []byte, height uint64, batch [][]byte, iBatch ui
 }
 
 // loadBatch fetches a batch of nodes in cache or db
-func (s *SMT) loadBatch(root []byte, updateSafe bool) ([][]byte, error) {
+func (s *SMT) loadBatch(root []byte) ([][]byte, error) {
 	var node Hash
 	copy(node[:], root)
 	s.db.liveMux.RLock()
@@ -294,9 +339,10 @@ func (s *SMT) loadBatch(root []byte, updateSafe bool) ([][]byte, error) {
 			s.LoadCacheCounter++
 			s.liveCountMux.Unlock()
 		}
-		if updateSafe {
+		if s.atomicUpdate {
 			// Return a copy so that Commit() doesnt have to be called at
 			// each block and still commit every state transition.
+			// Before Commit, the same batch is in liveCache and in updatedNodes
 			newVal := make([][]byte, 31, 31)
 			copy(newVal, val)
 			return newVal, nil
@@ -308,7 +354,7 @@ func (s *SMT) loadBatch(root []byte, updateSafe bool) ([][]byte, error) {
 	val, exists = s.db.updatedNodes[node]
 	s.db.updatedMux.RUnlock()
 	if exists {
-		if updateSafe {
+		if s.atomicUpdate {
 			// Return a copy so that Commit() doesnt have to be called at
 			// each block and still commit every state transition.
 			newVal := make([][]byte, 31, 31)
@@ -358,52 +404,6 @@ func (s *SMT) parseBatch(val []byte) [][]byte {
 	return batch
 }
 
-// Get fetches the value of a key by going down the current trie root.
-func (s *SMT) Get(key []byte) ([]byte, error) {
-	return s.get(s.Root, key, nil, 0, s.TrieHeight)
-}
-
-// get fetches the value of a key given a trie root
-func (s *SMT) get(root []byte, key []byte, batch [][]byte, iBatch uint8, height uint64) ([]byte, error) {
-	if height == 0 {
-		if len(root) == 0 {
-			return nil, nil
-		}
-		return root[:HashLength], nil
-	}
-	// Fetch the children of the node
-	batch, iBatch, lnode, rnode, isShortcut, err := s.loadChildren(root, height, batch, iBatch, false)
-	if err != nil {
-		return nil, err
-	}
-	if isShortcut {
-		if bytes.Equal(lnode[:HashLength], key) {
-			return rnode[:HashLength], nil
-		}
-		return nil, nil
-	}
-	if bitIsSet(key, s.TrieHeight-height) {
-		return s.get(rnode, key, batch, 2*iBatch+2, height-1)
-	}
-	return s.get(lnode, key, batch, 2*iBatch+1, height-1)
-}
-
-// DefaultHash is a getter for the defaultHashes array
-func (s *SMT) DefaultHash(height uint64) []byte {
-	return s.defaultHashes[height]
-}
-
-// CheckRoot returns true if the root exists in Database.
-func (s *SMT) CheckRoot(root []byte) bool {
-	s.db.lock.RLock()
-	dbval := s.db.store.Get(root)
-	s.db.lock.RUnlock()
-	if len(dbval) != 0 {
-		return true
-	}
-	return false
-}
-
 // interiorHash hashes 2 children to get the parent hash and stores it in the updatedNodes and maybe in liveCache.
 // the key is the hash and the value is the appended child nodes or the appended key/value in case of a shortcut.
 // keys of go mappings cannot be byte slices so the hash is copied to a byte array
@@ -413,11 +413,12 @@ func (s *SMT) interiorHash(left, right []byte, height uint64, oldRoot []byte, sh
 		// if a key was deleted, the node becomes default
 		batch[2*iBatch+1] = left
 		batch[2*iBatch+2] = right
+		s.deleteOldNode(oldRoot, height)
 		return nil
 	} else if len(left) == 0 {
-		h = s.hash(s.defaultHashes[height], right[:HashLength])
+		h = s.hash(s.defaultHashes[height-1], right[:HashLength])
 	} else if len(right) == 0 {
-		h = s.hash(left[:HashLength], s.defaultHashes[height])
+		h = s.hash(left[:HashLength], s.defaultHashes[height-1])
 	} else {
 		h = s.hash(left[:HashLength], right[:HashLength])
 	}
@@ -462,58 +463,73 @@ func (s *SMT) interiorHash(left, right []byte, height uint64, oldRoot []byte, sh
 	*/
 
 	// maybe store batch node
-	if (height+1)%4 == 0 {
-		var node Hash
-		copy(node[:], h[:HashLength])
+	if (height)%4 == 0 {
 		if shortcut {
 			batch[0] = []byte{1}
 		} else {
 			batch[0] = []byte{0}
 		}
-		// if node is default, interior hash returned at the begining
-		s.db.updatedMux.Lock()
-		s.db.updatedNodes[node] = batch
-		s.db.updatedMux.Unlock()
-		if height > s.CacheHeightLimit {
-			s.db.liveMux.Lock()
-			s.db.liveCache[node] = batch
-			if (len(oldRoot) != 0) && !bytes.Equal(h, oldRoot) {
-				// Delete old liveCache node if it has been updated and is not default
-				var node Hash
-				copy(node[:], oldRoot)
-				delete(s.db.liveCache, node)
-				//NOTE this could delete a node used by another part of the tree if some values are equal.
+
+		s.storeNode(batch, h, oldRoot, height)
+
+		/*
+			var node Hash
+			copy(node[:], h)
+			// if node is default, interior hash returned at the begining
+			s.db.updatedMux.Lock()
+			s.db.updatedNodes[node] = batch
+			s.db.updatedMux.Unlock()
+			//TODO delete oldroot from updated nodes
+			if height > s.CacheHeightLimit {
+				s.db.liveMux.Lock()
+				s.db.liveCache[node] = batch
+				if (len(oldRoot) != 0) && !bytes.Equal(h, oldRoot) {
+					// Delete old liveCache node if it has been updated and is not default
+					var node Hash
+					copy(node[:], oldRoot)
+					//delete(s.db.liveCache, node)
+					//NOTE this could delete a node used by another part of the tree if some values are equal.
+				}
+				s.db.liveMux.Unlock()
 			}
-			s.db.liveMux.Unlock()
-		}
+		*/
 	}
 	return h
 }
 
-// Commit stores the updated nodes to disk
-// Commit should be called for every block otherwise past tries are not recorded and it is not possible to revert to them
-func (s *SMT) Commit() error {
-	if s.db.store == nil {
-		return fmt.Errorf("DB not connected to trie")
+// storeNode stores a batch and deletes the old node from cache
+func (s *SMT) storeNode(batch [][]byte, h, oldRoot []byte, height uint64) {
+	if !bytes.Equal(h, oldRoot) {
+		var node Hash
+		copy(node[:], h)
+		// record new node
+		s.db.updatedMux.Lock()
+		s.db.updatedNodes[node] = batch
+		s.db.updatedMux.Unlock()
+		// Cache the shortcut node if it's height is over CacheHeightLimit
+		if height >= s.CacheHeightLimit {
+			s.db.liveMux.Lock()
+			s.db.liveCache[node] = batch
+			s.db.liveMux.Unlock()
+		}
+		s.deleteOldNode(oldRoot, height)
 	}
-	// Commit the new nodes to database, clear updatedNodes and store the Root in history for reverts.
-	if len(s.pastTries) >= maxPastTries {
-		copy(s.pastTries, s.pastTries[1:])
-		s.pastTries[len(s.pastTries)-1] = s.Root
-	} else {
-		s.pastTries = append(s.pastTries, s.Root)
-	}
-	s.db.commit()
-	s.db.updatedNodes = make(map[Hash][][]byte, len(s.db.updatedNodes)*2)
-	return nil
 }
 
-// RollbackTo rolls back the changes made by previous updates
-// and loads the cache from before the rollback.
-func (s *SMT) Stash() {
-	// Making a temporary liveCache requires it to be copied, so it's quicker
-	// to just load the cache if a block state root was incorrect.
-	s.Root = s.prevRoot
-	s.db.liveCache = make(map[Hash][][]byte)
-	s.db.updatedNodes = make(map[Hash][][]byte)
+// deleteOldNode deletes an old node that has been updated
+func (s *SMT) deleteOldNode(root []byte, height uint64) {
+	var node Hash
+	copy(node[:], root)
+	if !s.atomicUpdate {
+		// dont delete old nodes with atomic updated except when
+		// moving up a shortcut, we dont record every single move
+		s.db.updatedMux.Lock()
+		delete(s.db.updatedNodes, node)
+		s.db.updatedMux.Unlock()
+	}
+	if height >= s.CacheHeightLimit {
+		s.db.liveMux.Lock()
+		delete(s.db.liveCache, node)
+		s.db.liveMux.Unlock()
+	}
 }
