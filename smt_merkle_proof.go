@@ -14,7 +14,7 @@ import (
 func (s *SMT) MerkleProof(key []byte) ([][]byte, error) {
 	s.lock.RLock()
 	defer s.lock.RUnlock()
-	return s.merkleProof(s.Root, s.TrieHeight, key, nil, 0)
+	return s.merkleProof(s.Root, s.TrieHeight, 0, key, nil)
 }
 
 // MerkleProofCompressed returns a compressed merkle proof.
@@ -23,7 +23,7 @@ func (s *SMT) MerkleProofCompressed(key []byte) ([]byte, [][]byte, error) {
 	s.lock.RLock()
 	defer s.lock.RUnlock()
 	bitmap := make([]byte, s.TrieHeight/8)
-	mp, err := s.merkleProofCompressed(s.Root, s.TrieHeight, key, bitmap, nil, 0)
+	mp, err := s.merkleProofCompressed(s.Root, s.TrieHeight, 0, key, bitmap, nil)
 	return bitmap, mp, err
 }
 
@@ -33,7 +33,7 @@ func (s *SMT) MerkleProofCompressed2(key []byte) ([]byte, [][]byte, error) {
 	s.lock.RLock()
 	defer s.lock.RUnlock()
 	// create a regular merkle proof and then compress it
-	mpFull, err := s.merkleProof(s.Root, s.TrieHeight, key, nil, 0)
+	mpFull, err := s.merkleProof(s.Root, s.TrieHeight, 0, key, nil)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -49,12 +49,12 @@ func (s *SMT) MerkleProofCompressed2(key []byte) ([]byte, [][]byte, error) {
 }
 
 // merkleProof generates a Merke proof of inclusion or non inclusion for a given trie root
-func (s *SMT) merkleProof(root []byte, height uint64, key []byte, batch [][]byte, iBatch uint8) ([][]byte, error) {
+func (s *SMT) merkleProof(root []byte, height, iBatch uint64, key []byte, batch [][]byte) ([][]byte, error) {
 	if height == 0 {
 		return nil, nil
 	}
 	// Fetch the children of the node
-	batch, iBatch, lnode, rnode, isShortcut, err := s.loadChildren(root, height, batch, iBatch)
+	batch, iBatch, lnode, rnode, isShortcut, err := s.loadChildren(root, height, iBatch, batch)
 	if err != nil {
 		return nil, err
 	}
@@ -71,7 +71,7 @@ func (s *SMT) merkleProof(root []byte, height uint64, key []byte, batch [][]byte
 
 	// append the left or right node to the proof
 	if bitIsSet(key, s.TrieHeight-height) {
-		mp, err := s.merkleProof(rnode, height-1, key, batch, 2*iBatch+2)
+		mp, err := s.merkleProof(rnode, height-1, 2*iBatch+2, key, batch)
 		if err != nil {
 			return nil, err
 		}
@@ -81,7 +81,7 @@ func (s *SMT) merkleProof(root []byte, height uint64, key []byte, batch [][]byte
 			return append(mp, s.defaultHashes[height-1]), nil
 		}
 	}
-	mp, err := s.merkleProof(lnode, height-1, key, batch, 2*iBatch+1)
+	mp, err := s.merkleProof(lnode, height-1, 2*iBatch+1, key, batch)
 	if err != nil {
 		return nil, err
 	}
@@ -94,12 +94,12 @@ func (s *SMT) merkleProof(root []byte, height uint64, key []byte, batch [][]byte
 
 // merkleProofCompressed generates a Merke proof of inclusion or non inclusion for a given trie root
 // a proof node is only appended if it is non default and the corresponding bit is set in the bitmap
-func (s *SMT) merkleProofCompressed(root []byte, height uint64, key []byte, bitmap []byte, batch [][]byte, iBatch uint8) ([][]byte, error) {
+func (s *SMT) merkleProofCompressed(root []byte, height, iBatch uint64, key []byte, bitmap []byte, batch [][]byte) ([][]byte, error) {
 	if height == 0 {
 		return nil, nil
 	}
 	// Fetch the children of the node
-	batch, iBatch, lnode, rnode, isShortcut, err := s.loadChildren(root, height, batch, iBatch)
+	batch, iBatch, lnode, rnode, isShortcut, err := s.loadChildren(root, height, iBatch, batch)
 	if err != nil {
 		return nil, err
 	}
@@ -117,13 +117,13 @@ func (s *SMT) merkleProofCompressed(root []byte, height uint64, key []byte, bitm
 		if len(lnode) != 0 {
 			// with validate proof, use a default hash when bit is not set
 			bitSet(bitmap, height-1)
-			mp, err := s.merkleProofCompressed(rnode, height-1, key, bitmap, batch, 2*iBatch+2)
+			mp, err := s.merkleProofCompressed(rnode, height-1, 2*iBatch+2, key, bitmap, batch)
 			if err != nil {
 				return nil, err
 			}
 			return append(mp, lnode[:HashLength]), nil
 		}
-		mp, err := s.merkleProofCompressed(rnode, height-1, key, bitmap, batch, 2*iBatch+2)
+		mp, err := s.merkleProofCompressed(rnode, height-1, 2*iBatch+2, key, bitmap, batch)
 		if err != nil {
 			return nil, err
 		}
@@ -133,13 +133,13 @@ func (s *SMT) merkleProofCompressed(root []byte, height uint64, key []byte, bitm
 		//if !bytes.Equal(rnode, s.defaultHashes[height-1]) {
 		// with validate proof, use a default hash when bit is not set
 		bitSet(bitmap, height-1)
-		mp, err := s.merkleProofCompressed(lnode, height-1, key, bitmap, batch, 2*iBatch+1)
+		mp, err := s.merkleProofCompressed(lnode, height-1, 2*iBatch+1, key, bitmap, batch)
 		if err != nil {
 			return nil, err
 		}
 		return append(mp, rnode[:HashLength]), nil
 	}
-	mp, err := s.merkleProofCompressed(lnode, height-1, key, bitmap, batch, 2*iBatch+1)
+	mp, err := s.merkleProofCompressed(lnode, height-1, 2*iBatch+1, key, bitmap, batch)
 	if err != nil {
 		return nil, err
 	}

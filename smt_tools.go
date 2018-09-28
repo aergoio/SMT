@@ -21,7 +21,7 @@ func (s *SMT) Get(key []byte) ([]byte, error) {
 }
 
 // get fetches the value of a key given a trie root
-func (s *SMT) get(root []byte, key []byte, batch [][]byte, iBatch uint8, height uint64) ([]byte, error) {
+func (s *SMT) get(root []byte, key []byte, batch [][]byte, iBatch, height uint64) ([]byte, error) {
 	if len(root) == 0 {
 		return nil, nil
 	}
@@ -29,7 +29,7 @@ func (s *SMT) get(root []byte, key []byte, batch [][]byte, iBatch uint8, height 
 		return root[:HashLength], nil
 	}
 	// Fetch the children of the node
-	batch, iBatch, lnode, rnode, isShortcut, err := s.loadChildren(root, height, batch, iBatch)
+	batch, iBatch, lnode, rnode, isShortcut, err := s.loadChildren(root, height, iBatch, batch)
 	if err != nil {
 		return nil, err
 	}

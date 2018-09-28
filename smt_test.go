@@ -262,7 +262,7 @@ func TestTrieUpdateAndDelete(t *testing.T) {
 	values := getFreshData(1, 32)
 	root, _ := smt.Update([][]byte{key0}, values)
 	smt.atomicUpdate = false
-	_, _, k, v, isShortcut, _ := smt.loadChildren(root, smt.TrieHeight, nil, 0)
+	_, _, k, v, isShortcut, _ := smt.loadChildren(root, smt.TrieHeight, 0, nil)
 	if !isShortcut || !bytes.Equal(k[:HashLength], key0) || !bytes.Equal(v[:HashLength], values[0]) {
 		t.Fatal("leaf shortcut didn't move up to root")
 	}
@@ -502,7 +502,7 @@ func TestSmtRaisesError(t *testing.T) {
 		t.Fatal("Error not created if database not connected")
 	}
 	smt.db.liveCache = make(map[Hash][][]byte)
-	_, _, _, _, _, err = smt.loadChildren(make([]byte, 32, 32), 0, nil, 0)
+	_, _, _, _, _, err = smt.loadChildren(make([]byte, 32, 32), 0, 0, nil)
 	if err == nil {
 		t.Fatal("Error not created if database not connected")
 	}

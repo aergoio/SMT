@@ -146,7 +146,7 @@ type result struct {
 
 // update adds a sorted list of keys and their values to the trie.
 // It returns the root of the updated tree.
-func (s *SMT) update(root []byte, keys, values, batch [][]byte, iBatch uint8, height uint64, shortcut, store bool, ch chan<- (result)) {
+func (s *SMT) update(root []byte, keys, values, batch [][]byte, iBatch, height uint64, shortcut, store bool, ch chan<- (result)) {
 	if height == 0 {
 		if bytes.Equal(values[0], DefaultLeaf) {
 			ch <- result{nil, nil}
@@ -155,9 +155,7 @@ func (s *SMT) update(root []byte, keys, values, batch [][]byte, iBatch uint8, he
 		}
 		return
 	}
-	// updateSafe in loadChildren is set to false so intermediate node modifications by multiple update calls
-	// will not be commited. Setting true will record intermediate modifications by every update. Can be useful if several blocks commited at same time.
-	batch, iBatch, lnode, rnode, isShortcut, err := s.loadChildren(root, height, batch, iBatch)
+	batch, iBatch, lnode, rnode, isShortcut, err := s.loadChildren(root, height, iBatch, batch)
 	if err != nil {
 		ch <- result{nil, err}
 		return
@@ -199,7 +197,7 @@ func (s *SMT) update(root []byte, keys, values, batch [][]byte, iBatch uint8, he
 }
 
 // updateParallel updates both sides of the trie simultaneously
-func (s *SMT) updateParallel(lnode, rnode, root []byte, keys, values, batch, lkeys, rkeys, lvalues, rvalues [][]byte, iBatch uint8, height uint64, shortcut, store bool, ch chan<- (result)) {
+func (s *SMT) updateParallel(lnode, rnode, root []byte, keys, values, batch, lkeys, rkeys, lvalues, rvalues [][]byte, iBatch, height uint64, shortcut, store bool, ch chan<- (result)) {
 	// keys are separated between the left and right branches
 	// update the branches in parallel
 	lch := make(chan result, 1)
@@ -216,12 +214,12 @@ func (s *SMT) updateParallel(lnode, rnode, root []byte, keys, values, batch, lke
 		ch <- result{nil, rresult.err}
 		return
 	}
-	ch <- result{s.interiorHash(lresult.update, rresult.update, height, root, shortcut, store, keys, values, batch, iBatch), nil}
+	ch <- result{s.interiorHash(lresult.update, rresult.update, height, iBatch, root, shortcut, store, keys, values, batch), nil}
 
 }
 
 // updateRight updates the right side of the tree
-func (s *SMT) updateRight(lnode, rnode, root []byte, keys, values, batch [][]byte, iBatch uint8, height uint64, shortcut, store bool, ch chan<- (result)) {
+func (s *SMT) updateRight(lnode, rnode, root []byte, keys, values, batch [][]byte, iBatch, height uint64, shortcut, store bool, ch chan<- (result)) {
 	// all the keys go in the right subtree
 	newch := make(chan result, 1)
 	s.update(rnode, keys, values, batch, 2*iBatch+2, height-1, shortcut, store, newch)
@@ -230,11 +228,11 @@ func (s *SMT) updateRight(lnode, rnode, root []byte, keys, values, batch [][]byt
 		ch <- result{nil, res.err}
 		return
 	}
-	ch <- result{s.interiorHash(lnode, res.update, height, root, shortcut, store, keys, values, batch, iBatch), nil}
+	ch <- result{s.interiorHash(lnode, res.update, height, iBatch, root, shortcut, store, keys, values, batch), nil}
 }
 
 // updateLeft updates the left side of the tree
-func (s *SMT) updateLeft(lnode, rnode, root []byte, keys, values, batch [][]byte, iBatch uint8, height uint64, shortcut, store bool, ch chan<- (result)) {
+func (s *SMT) updateLeft(lnode, rnode, root []byte, keys, values, batch [][]byte, iBatch, height uint64, shortcut, store bool, ch chan<- (result)) {
 	// all the keys go in the left subtree
 	newch := make(chan result, 1)
 	s.update(lnode, keys, values, batch, 2*iBatch+1, height-1, shortcut, store, newch)
@@ -243,7 +241,7 @@ func (s *SMT) updateLeft(lnode, rnode, root []byte, keys, values, batch [][]byte
 		ch <- result{nil, res.err}
 		return
 	}
-	ch <- result{s.interiorHash(res.update, rnode, height, root, shortcut, store, keys, values, batch, iBatch), nil}
+	ch <- result{s.interiorHash(res.update, rnode, height, iBatch, root, shortcut, store, keys, values, batch), nil}
 }
 
 // splitKeys devides the array of keys into 2 so they can update left and right branches in parallel
@@ -300,7 +298,7 @@ func (s *SMT) maybeAddShortcutToKV(keys, values [][]byte, shortcutKey, shortcutV
 
 // loadChildren looks for the children of a node.
 // if the node is not stored in cache, it will be loaded from db.
-func (s *SMT) loadChildren(root []byte, height uint64, batch [][]byte, iBatch uint8) ([][]byte, uint8, []byte, []byte, bool, error) {
+func (s *SMT) loadChildren(root []byte, height, iBatch uint64, batch [][]byte) ([][]byte, uint64, []byte, []byte, bool, error) {
 	isShortcut := false
 	if height%4 == 0 {
 		if len(root) == 0 {
@@ -407,7 +405,7 @@ func (s *SMT) parseBatch(val []byte) [][]byte {
 // interiorHash hashes 2 children to get the parent hash and stores it in the updatedNodes and maybe in liveCache.
 // the key is the hash and the value is the appended child nodes or the appended key/value in case of a shortcut.
 // keys of go mappings cannot be byte slices so the hash is copied to a byte array
-func (s *SMT) interiorHash(left, right []byte, height uint64, oldRoot []byte, shortcut, store bool, keys, values, batch [][]byte, iBatch uint8) []byte {
+func (s *SMT) interiorHash(left, right []byte, height, iBatch uint64, oldRoot []byte, shortcut, store bool, keys, values, batch [][]byte) []byte {
 	var h []byte
 	if (len(left) == 0) && (len(right)) == 0 {
 		// if a key was deleted, the node becomes default
