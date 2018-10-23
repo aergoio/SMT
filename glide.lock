@@ -1,5 +1,5 @@
 hash: 7e24d71f3b8141eff9ea8f1399e7f28cfa4296d25a8d8f6b66edef4796e69cce
-updated: 2018-08-24T11:19:26.494067+09:00
+updated: 2018-10-21T19:44:04.270785+09:00
 imports:
 - name: github.com/aergoio/aergo-lib
   version: dad163a46b6aedafb6ca5a00620168e27235022a
@@ -8,7 +8,7 @@ imports:
 - name: github.com/AndreasBriese/bbloom
   version: 28f7e881ca57bc00e028f9ede9f0d9104cfeef5e
 - name: github.com/dgraph-io/badger
-  version: 391b6d3b93e6014fe8c2971fcc0c1266e47dbbd9
+  version: 99233d725dbdd26d156c61b2f42ae1671b794656
   subpackages:
   - options
   - protos

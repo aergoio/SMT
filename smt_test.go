@@ -520,8 +520,32 @@ func TestStash(t *testing.T) {
 	values := getFreshData(20, 32)
 	root, _ := smt.Update(keys, values)
 	smt.Commit()
+	if len(smt.pastTries) != 1 {
+		t.Fatal("Past tries not updated after commit")
+	}
 	values = getFreshData(20, 32)
 	smt.Update(keys, values)
+	smt.Stash()
+	if len(smt.pastTries) != 1 {
+		t.Fatal("Past tries not updated after commit")
+	}
+	if !bytes.Equal(smt.Root, root) {
+		t.Fatal("Trie not rolled back")
+	}
+	if len(smt.db.updatedNodes) != 0 {
+		t.Fatal("Trie not rolled back")
+	}
+	if len(smt.db.liveCache) != 0 {
+		t.Fatal("Trie not rolled back")
+	}
+	keys = getFreshData(20, 32)
+	values = getFreshData(20, 32)
+	smt.AtomicUpdate(keys, values)
+	values = getFreshData(20, 32)
+	smt.AtomicUpdate(keys, values)
+	if len(smt.pastTries) != 3 {
+		t.Fatal("Past tries not updated after commit")
+	}
 	smt.Stash()
 	if !bytes.Equal(smt.Root, root) {
 		t.Fatal("Trie not rolled back")
@@ -531,6 +555,9 @@ func TestStash(t *testing.T) {
 	}
 	if len(smt.db.liveCache) != 0 {
 		t.Fatal("Trie not rolled back")
+	}
+	if len(smt.pastTries) != 1 {
+		t.Fatal("Past tries not updated after commit")
 	}
 	st.Close()
 	os.RemoveAll(".aergo")

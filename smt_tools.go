@@ -80,10 +80,11 @@ func (s *SMT) Commit() error {
 	}
 	s.db.commit()
 	s.db.updatedNodes = make(map[Hash][][]byte)
+	s.prevRoot = s.Root
 	return nil
 }
 
-// RollbackTo rolls back the changes made by previous updates
+// Stash rolls back the changes made by previous updates made without commit
 // and loads the cache from before the rollback.
 func (s *SMT) Stash() {
 	// Making a temporary liveCache requires it to be copied, so it's quicker
@@ -91,4 +92,14 @@ func (s *SMT) Stash() {
 	s.Root = s.prevRoot
 	s.db.liveCache = make(map[Hash][][]byte)
 	s.db.updatedNodes = make(map[Hash][][]byte)
+	// TODO add LoadCache()
+	// also stash past tries created by Atomic update
+	for i := len(s.pastTries) - 1; i >= 0; i-- {
+		if bytes.Equal(s.pastTries[i], s.Root) {
+			break
+		} else {
+			// remove from past tries
+			s.pastTries = s.pastTries[:len(s.pastTries)-1]
+		}
+	}
 }
