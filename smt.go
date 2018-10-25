@@ -29,21 +29,21 @@ type SMT struct {
 	// hash is the hash function used in the trie
 	hash func(data ...[]byte) []byte
 	// TrieHeight is the number if bits in a key
-	TrieHeight uint64
+	TrieHeight int
 	// defaultHashes are the default values of empty trees
 	defaultHashes [][]byte
 	// LoadDbCounter counts the nb of db reads in on update
-	LoadDbCounter uint64
+	LoadDbCounter int
 	// loadDbMux is a lock for LoadDbCounter
 	loadDbMux sync.RWMutex
 	// LoadCacheCounter counts the nb of cache reads in on update
-	LoadCacheCounter uint64
+	LoadCacheCounter int
 	// liveCountMux is a lock fo LoadCacheCounter
 	liveCountMux sync.RWMutex
 	// counterOn is used to enable/diseable for efficiency
 	counterOn bool
 	// CacheHeightLimit is the number of tree levels we want to store in cache
-	CacheHeightLimit uint64
+	CacheHeightLimit int
 	// pastTries stores the past maxPastTries trie roots to revert
 	pastTries [][]byte
 	// atomicUpdate, commit all the changes made by intermediate update calls
@@ -54,7 +54,7 @@ type SMT struct {
 func NewSMT(root []byte, hash func(data ...[]byte) []byte, store db.DB) *SMT {
 	s := &SMT{
 		hash:       hash,
-		TrieHeight: uint64(len(hash([]byte("height"))) * 8), // hash any string to get output length
+		TrieHeight: len(hash([]byte("height"))) * 8, // hash any string to get output length
 		counterOn:  false,
 	}
 	s.db = &CacheDB{
@@ -144,7 +144,7 @@ type result struct {
 
 // update adds a sorted list of keys and their values to the trie.
 // It returns the root of the updated tree.
-func (s *SMT) update(root []byte, keys, values, batch [][]byte, iBatch, height uint64, shortcut, store bool, ch chan<- (result)) {
+func (s *SMT) update(root []byte, keys, values, batch [][]byte, iBatch, height int, shortcut, store bool, ch chan<- (result)) {
 	if height == 0 {
 		if bytes.Equal(values[0], DefaultLeaf) {
 			ch <- result{nil, nil}
@@ -195,7 +195,7 @@ func (s *SMT) update(root []byte, keys, values, batch [][]byte, iBatch, height u
 }
 
 // updateParallel updates both sides of the trie simultaneously
-func (s *SMT) updateParallel(lnode, rnode, root []byte, keys, values, batch, lkeys, rkeys, lvalues, rvalues [][]byte, iBatch, height uint64, shortcut, store bool, ch chan<- (result)) {
+func (s *SMT) updateParallel(lnode, rnode, root []byte, keys, values, batch, lkeys, rkeys, lvalues, rvalues [][]byte, iBatch, height int, shortcut, store bool, ch chan<- (result)) {
 	// keys are separated between the left and right branches
 	// update the branches in parallel
 	lch := make(chan result, 1)
@@ -217,7 +217,7 @@ func (s *SMT) updateParallel(lnode, rnode, root []byte, keys, values, batch, lke
 }
 
 // updateRight updates the right side of the tree
-func (s *SMT) updateRight(lnode, rnode, root []byte, keys, values, batch [][]byte, iBatch, height uint64, shortcut, store bool, ch chan<- (result)) {
+func (s *SMT) updateRight(lnode, rnode, root []byte, keys, values, batch [][]byte, iBatch, height int, shortcut, store bool, ch chan<- (result)) {
 	// all the keys go in the right subtree
 	newch := make(chan result, 1)
 	s.update(rnode, keys, values, batch, 2*iBatch+2, height-1, shortcut, store, newch)
@@ -230,7 +230,7 @@ func (s *SMT) updateRight(lnode, rnode, root []byte, keys, values, batch [][]byt
 }
 
 // updateLeft updates the left side of the tree
-func (s *SMT) updateLeft(lnode, rnode, root []byte, keys, values, batch [][]byte, iBatch, height uint64, shortcut, store bool, ch chan<- (result)) {
+func (s *SMT) updateLeft(lnode, rnode, root []byte, keys, values, batch [][]byte, iBatch, height int, shortcut, store bool, ch chan<- (result)) {
 	// all the keys go in the left subtree
 	newch := make(chan result, 1)
 	s.update(lnode, keys, values, batch, 2*iBatch+1, height-1, shortcut, store, newch)
@@ -243,7 +243,7 @@ func (s *SMT) updateLeft(lnode, rnode, root []byte, keys, values, batch [][]byte
 }
 
 // splitKeys devides the array of keys into 2 so they can update left and right branches in parallel
-func (s *SMT) splitKeys(keys [][]byte, height uint64) ([][]byte, [][]byte) {
+func (s *SMT) splitKeys(keys [][]byte, height int) ([][]byte, [][]byte) {
 	for i, key := range keys {
 		if bitIsSet(key, height) {
 			return keys[:i], keys[i:]
@@ -296,7 +296,7 @@ func (s *SMT) maybeAddShortcutToKV(keys, values [][]byte, shortcutKey, shortcutV
 
 // loadChildren looks for the children of a node.
 // if the node is not stored in cache, it will be loaded from db.
-func (s *SMT) loadChildren(root []byte, height, iBatch uint64, batch [][]byte) ([][]byte, uint64, []byte, []byte, bool, error) {
+func (s *SMT) loadChildren(root []byte, height, iBatch int, batch [][]byte) ([][]byte, int, []byte, []byte, bool, error) {
 	isShortcut := false
 	if height%4 == 0 {
 		if len(root) == 0 {
@@ -391,7 +391,7 @@ func (s *SMT) parseBatch(val []byte) [][]byte {
 		batch[0] = []byte{0}
 		j := 0
 		for i := 1; i <= 30; i++ {
-			if bitIsSet(bitmap, uint64(i-1)) {
+			if bitIsSet(bitmap, i-1) {
 				batch[i] = val[4+33*j : 4+33*(j+1)]
 				j++
 			}
@@ -403,7 +403,7 @@ func (s *SMT) parseBatch(val []byte) [][]byte {
 // interiorHash hashes 2 children to get the parent hash and stores it in the updatedNodes and maybe in liveCache.
 // the key is the hash and the value is the appended child nodes or the appended key/value in case of a shortcut.
 // keys of go mappings cannot be byte slices so the hash is copied to a byte array
-func (s *SMT) interiorHash(left, right []byte, height, iBatch uint64, oldRoot []byte, shortcut, store bool, keys, values, batch [][]byte) []byte {
+func (s *SMT) interiorHash(left, right []byte, height, iBatch int, oldRoot []byte, shortcut, store bool, keys, values, batch [][]byte) []byte {
 	var h []byte
 	if (len(left) == 0) && (len(right)) == 0 {
 		// if a key was deleted, the node becomes default
@@ -467,34 +467,12 @@ func (s *SMT) interiorHash(left, right []byte, height, iBatch uint64, oldRoot []
 		}
 
 		s.storeNode(batch, h, oldRoot, height)
-
-		/*
-			var node Hash
-			copy(node[:], h)
-			// if node is default, interior hash returned at the begining
-			s.db.updatedMux.Lock()
-			s.db.updatedNodes[node] = batch
-			s.db.updatedMux.Unlock()
-			//TODO delete oldroot from updated nodes
-			if height > s.CacheHeightLimit {
-				s.db.liveMux.Lock()
-				s.db.liveCache[node] = batch
-				if (len(oldRoot) != 0) && !bytes.Equal(h, oldRoot) {
-					// Delete old liveCache node if it has been updated and is not default
-					var node Hash
-					copy(node[:], oldRoot)
-					//delete(s.db.liveCache, node)
-					//NOTE this could delete a node used by another part of the tree if some values are equal.
-				}
-				s.db.liveMux.Unlock()
-			}
-		*/
 	}
 	return h
 }
 
 // storeNode stores a batch and deletes the old node from cache
-func (s *SMT) storeNode(batch [][]byte, h, oldRoot []byte, height uint64) {
+func (s *SMT) storeNode(batch [][]byte, h, oldRoot []byte, height int) {
 	if !bytes.Equal(h, oldRoot) {
 		var node Hash
 		copy(node[:], h)
@@ -508,12 +486,14 @@ func (s *SMT) storeNode(batch [][]byte, h, oldRoot []byte, height uint64) {
 			s.db.liveCache[node] = batch
 			s.db.liveMux.Unlock()
 		}
+		//NOTE this could delete a node used by another part of the tree
+		// if some values are equal and update is called multiple times without commit.
 		s.deleteOldNode(oldRoot, height)
 	}
 }
 
 // deleteOldNode deletes an old node that has been updated
-func (s *SMT) deleteOldNode(root []byte, height uint64) {
+func (s *SMT) deleteOldNode(root []byte, height int) {
 	var node Hash
 	copy(node[:], root)
 	if !s.atomicUpdate {

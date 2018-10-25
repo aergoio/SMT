@@ -41,7 +41,7 @@ func (s *SMT) MerkleProofCompressed2(key []byte) ([]byte, [][]byte, error) {
 	bitmap := make([]byte, s.TrieHeight/8)
 	for i, node := range mpFull {
 		if !bytes.Equal(node, s.defaultHashes[i]) {
-			bitSet(bitmap, uint64(i))
+			bitSet(bitmap, i)
 			mp = append(mp, node)
 		}
 	}
@@ -49,7 +49,7 @@ func (s *SMT) MerkleProofCompressed2(key []byte) ([]byte, [][]byte, error) {
 }
 
 // merkleProof generates a Merke proof of inclusion or non inclusion for a given trie root
-func (s *SMT) merkleProof(root []byte, height, iBatch uint64, key []byte, batch [][]byte) ([][]byte, error) {
+func (s *SMT) merkleProof(root []byte, height, iBatch int, key []byte, batch [][]byte) ([][]byte, error) {
 	if height == 0 {
 		return nil, nil
 	}
@@ -94,7 +94,7 @@ func (s *SMT) merkleProof(root []byte, height, iBatch uint64, key []byte, batch 
 
 // merkleProofCompressed generates a Merke proof of inclusion or non inclusion for a given trie root
 // a proof node is only appended if it is non default and the corresponding bit is set in the bitmap
-func (s *SMT) merkleProofCompressed(root []byte, height, iBatch uint64, key []byte, bitmap []byte, batch [][]byte) ([][]byte, error) {
+func (s *SMT) merkleProofCompressed(root []byte, height, iBatch int, key []byte, bitmap []byte, batch [][]byte) ([][]byte, error) {
 	if height == 0 {
 		return nil, nil
 	}
@@ -153,11 +153,11 @@ func (s *SMT) VerifyMerkleProof(ap [][]byte, key, value []byte) bool {
 
 // VerifyMerkleProofCompressed verifies that key/value is included in the trie with latest root
 func (s *SMT) VerifyMerkleProofCompressed(bitmap []byte, ap [][]byte, key, value []byte) bool {
-	return bytes.Equal(s.Root, s.verifyMerkleProofCompressed(bitmap, ap, s.TrieHeight, uint64(len(ap)), key, value))
+	return bytes.Equal(s.Root, s.verifyMerkleProofCompressed(bitmap, ap, s.TrieHeight, len(ap), key, value))
 }
 
 // verifyMerkleProof verifies that a key/value is included in the trie with given root
-func (s *SMT) verifyMerkleProof(ap [][]byte, height uint64, key, value []byte) []byte {
+func (s *SMT) verifyMerkleProof(ap [][]byte, height int, key, value []byte) []byte {
 	if height == 0 {
 		return value
 	}
@@ -168,7 +168,7 @@ func (s *SMT) verifyMerkleProof(ap [][]byte, height uint64, key, value []byte) [
 }
 
 // verifyMerkleProof verifies that a key/value is included in the trie with given root
-func (s *SMT) verifyMerkleProofCompressed(bitmap []byte, ap [][]byte, height uint64, apIndex uint64, key, value []byte) []byte {
+func (s *SMT) verifyMerkleProofCompressed(bitmap []byte, ap [][]byte, height int, apIndex int, key, value []byte) []byte {
 	if height == 0 {
 		return value
 	}
@@ -186,7 +186,7 @@ func (s *SMT) verifyMerkleProofCompressed(bitmap []byte, ap [][]byte, height uin
 }
 
 // shortcutToSubTreeRoot computes the subroot at height of a subtree containing one key
-func (s *SMT) shortcutToSubTreeRoot(key, value []byte, height uint64) []byte {
+func (s *SMT) shortcutToSubTreeRoot(key, value []byte, height int) []byte {
 	if height == 0 {
 		return value
 	}
@@ -198,7 +198,7 @@ func (s *SMT) shortcutToSubTreeRoot(key, value []byte, height uint64) []byte {
 
 // unrollShortcutAndKey returns the merkle proof nodes of an empty key in a subtree that contains another key
 // the key we are proving is not in the tree, it's value is default
-func (s *SMT) unrollShortcutAndKey(key, value []byte, height uint64, emptyKey []byte) [][]byte {
+func (s *SMT) unrollShortcutAndKey(key, value []byte, height int, emptyKey []byte) [][]byte {
 	// if the keys have the same bits add a default hash to the proof
 	if bitIsSet(key, s.TrieHeight-height) == bitIsSet(emptyKey, s.TrieHeight-height) {
 		return append(s.unrollShortcutAndKey(key, value, height-1, emptyKey), s.defaultHashes[height-1])
@@ -211,7 +211,7 @@ func (s *SMT) unrollShortcutAndKey(key, value []byte, height uint64, emptyKey []
 
 // unrollShortcutAndKeyCompressed returns the merkle proof nodes of an empty key in a subtree that contains another key
 // the key we are proving is not in the tree, it's value is default
-func (s *SMT) unrollShortcutAndKeyCompressed(key, value []byte, height uint64, bitmap []byte, emptyKey []byte) []byte {
+func (s *SMT) unrollShortcutAndKeyCompressed(key, value []byte, height int, bitmap []byte, emptyKey []byte) []byte {
 	// this version of unroll for compressed proofs simply sets the bitmap for non default nodes
 	if bitIsSet(key, s.TrieHeight-height) == bitIsSet(emptyKey, s.TrieHeight-height) {
 		return s.unrollShortcutAndKeyCompressed(key, value, height-1, bitmap, emptyKey)

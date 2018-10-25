@@ -21,7 +21,7 @@ func (s *SMT) Get(key []byte) ([]byte, error) {
 }
 
 // get fetches the value of a key given a trie root
-func (s *SMT) get(root []byte, key []byte, batch [][]byte, iBatch, height uint64) ([]byte, error) {
+func (s *SMT) get(root []byte, key []byte, batch [][]byte, iBatch, height int) ([]byte, error) {
 	if len(root) == 0 {
 		return nil, nil
 	}
@@ -46,7 +46,7 @@ func (s *SMT) get(root []byte, key []byte, batch [][]byte, iBatch, height uint64
 }
 
 // DefaultHash is a getter for the defaultHashes array
-func (s *SMT) DefaultHash(height uint64) []byte {
+func (s *SMT) DefaultHash(height int) []byte {
 	return s.defaultHashes[height]
 }
 
