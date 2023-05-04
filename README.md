@@ -11,4 +11,6 @@ Details of the SMT implementation : [https://medium.com/@ouvrard.pierre.alain/sp
 - Reduced data storage (**shortcut nodes** for subtrees containing one key)
 - Simultaneous update of multiple keys with goroutines
 
+### Related
 
+Check also the [state-tools](https://github.com/aergoio/state-tools)
